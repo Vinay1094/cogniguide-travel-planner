@@ -1,0 +1,35 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CogniGuide - Your AI Travel Planner</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to CogniGuide!</h1>
+        <p>Your AI-powered travel assistant. Ask me anything about your next adventure!</p>
+        
+        <div class="input-section">
+            <textarea id="questionInput" placeholder="Ask your travel question here..."></textarea>
+            <button id="askButton">Ask CogniGuide</button>
+        </div>
+        
+        <div class="response-section">
+            <h2>CogniGuide's Answer:</h2>
+            <div id="answerOutput">
+                <p>Your AI-powered answer will appear here.</p>
+            </div>
+        </div>
+
+        <div class="loading-indicator" id="loadingIndicator">
+            <div class="spinner"></div>
+            <p>Thinking...</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
