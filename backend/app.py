@@ -38,4 +38,4 @@ if __name__ == '__main__':
     # The host '0.0.0.0' makes the server accessible from any IP on your network,
     # useful for testing from other devices or containers later.
     # debug=True allows for automatic reloading on code changes and provides a debugger.
-    app.run(host='0.0.0.0', port=5000, debug=True)
+  
