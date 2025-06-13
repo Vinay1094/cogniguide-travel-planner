@@ -1,9 +1,14 @@
 import os
 import json
 import numpy as np
-from sentence_transformers import SentenceTransformer
+import os
+import json
+import numpy as np
 import faiss
-import google.generativeai as genai
+import google.generativeai as genai # Add this line
+
+# Configure Google API key for embeddings
+genai.configure(api_key=os.environ.get('GOOGLE_API_KEY')) # Add this line, assuming GOOGLE_API_KEY is an env var
 
 # --- Configuration ---
 # Define paths relative to the script's directory
@@ -14,15 +19,48 @@ EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2' # Same model used for creating embeddi
 GEMINI_MODEL_NAME = 'gemini-1.5-flash-latest' # The Gemini model you confirmed is working
 
 # --- Load Components ---
-# Load the embedding model (for user queries)
-print(f"Loading embedding model: {EMBEDDING_MODEL_NAME}...")
-try:
-    embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-    print("Embedding model loaded.")
-except Exception as e:
-    print(f"Error loading embedding model: {e}")
-    print("Ensure you have 'sentence-transformers' installed.")
-    exit()
+# Function to generate embeddings using Google's API
+def get_embedding(text_chunk):
+    try:
+        # Use Google's embedding model
+        # 'models/embedding-001' is a common embedding model from Google
+        response = genai.embed_content(model="models/embedding-001", content=text_chunk)
+        return response["embedding"]
+    except Exception as e:
+        print(f"Error generating embedding: {e}")
+        return None
+
+# Modify your RAGPipeline class to use this new get_embedding function
+class RAGPipeline:
+    def __init__(self, index_path='rag_pipeline/faiss_index.bin', metadata_path='rag_pipeline/chunks_metadata.json'):
+        self.index = faiss.read_index(index_path)
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            self.chunks_metadata = json.load(f)
+        # No SentenceTransformer model needs to be loaded here anymore
+        # self.model = SentenceTransformer('all-MiniLM-L6-v2') # Remove or comment out this line
+
+    def retrieve_chunks(self, query, k=3):
+        query_embedding = get_embedding(query) # Use the new get_embedding function
+        if query_embedding is None:
+            return []
+        # FAISS expects numpy array of float32, reshaped to (1, embedding_dim)
+        query_embedding = np.array([query_embedding], dtype=np.float32)
+
+        # Perform similarity search
+        D, I = self.index.search(query_embedding, k)
+
+        retrieved_chunks = []
+        for i in I[0]:
+            if i != -1: # Ensure the index is valid
+                retrieved_chunks.append(self.chunks_metadata[i])
+        return retrieved_chunks
+
+    # Your get_answer method (or similar) will use retrieve_chunks, which now uses Google Embeddings
+    # Example (ensure your get_answer calls retrieve_chunks internally):
+    # def get_answer(self, user_query):
+    #     relevant_chunks = self.retrieve_chunks(user_query)
+    #     # ... rest of your logic ...
+    #     return final_answer
 
 # Load the FAISS index
 print(f"Loading FAISS index from {FAISS_INDEX_PATH}...")
