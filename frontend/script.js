@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         askButton.disabled = true; // Disable button while processing
 
         try {
-            const response = await fetch('http://localhost:5000/ask', {
+            const backendUrl = 'YOUR_RENDER_SERVICE_URL_HERE'', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
