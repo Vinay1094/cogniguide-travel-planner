@@ -1,44 +1,41 @@
-import os
-from flask_cors import CORS
+# backend/app.py
+
 from flask import Flask, request, jsonify
-
-# Import the get_rag_response function from your rag_pipeline
-# We need to adjust the import path because app.py is in 'backend'
-# relative to rag_app.py in 'rag_pipeline'.
+from flask_cors import CORS # Add this line
+import os
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'rag_pipeline')))
-from rag_app import get_rag_response
 
-app = Flask(__name__) 
-CORS(app)
+# Ensure the rag_pipeline directory is in the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'rag_pipeline')))
+from rag import RAGPipeline # Adjust import if your RAGPipeline class is named differently
 
+app = Flask(__name__)
+CORS(app) # Add this line right after app = Flask(__name__)
+
+# Initialize RAG Pipeline globally to avoid re-loading on each request
+# This assumes faiss_index.bin and chunks_metadata.json are in the rag_pipeline directory
+rag_pipeline = RAGPipeline() # Or however you instantiate it
 
 @app.route('/')
 def home():
-    return "CogniGuide Backend API is running!"
+    return "CogniGuide Backend is Running!"
 
 @app.route('/ask', methods=['POST'])
-def ask_question():
-    data = request.get_json()
-    if not data or 'query' not in data:
-        return jsonify({"error": "Missing 'query' in request body"}), 400
+def ask():
+    data = request.json
+    query = data.get('query')
 
-    user_query = data['query']
-    print(f"Received API query: {user_query}")
+    if not query:
+        return jsonify({'error': 'No query provided'}), 400
 
     try:
-        # Call your RAG function
-        response = get_rag_response(user_query)
-        return jsonify({"answer": response})
+        answer = rag_pipeline.get_answer(query)
+        return jsonify({'answer': answer})
     except Exception as e:
-        print(f"Error processing RAG query: {e}")
-        return jsonify({"error": "An internal error occurred while processing your request."}), 500
+        print(f"Error processing query: {e}") # This will show in Render logs!
+        return jsonify({'error': f'An internal server error occurred: {str(e)}'}), 500
 
-# ... previous code ...
-
-# Line 37: The if statement
 if __name__ == '__main__':
-# Line 38: This line might be blank or not indented,
-# Line 39: or the next line of code (like app.run()) isn't indented.
-    # This is how it should look: the app.run() line is indented 4 spaces
-    app.run(debug=True) # or app.run(host='0.0.0.0', port=5000)
+    # Use Gunicorn's default host/port when running directly for local testing
+    # For Render deployment, Gunicorn will handle host/port
+    app.run(host='0.0.0.0', port=os.environ.get('PORT', 5000))
