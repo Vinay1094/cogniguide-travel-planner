@@ -18,6 +18,19 @@ except Exception as e:
     # It's critical to exit if API key is not set, as nothing else will work
     import sys
     sys.exit(1) # Exit the process if API key is not set
+print("\n--- Listing available models that support generateContent ---")
+found_model = False
+try:
+    for m in genai.list_models():
+        if "generateContent" in m.supported_generation_methods:
+            print(f"  Found model: {m.name}")
+            found_model = True
+except Exception as e:
+    print(f"  Error listing models: {e}")
+if not found_model:
+    print("  No models found that support 'generateContent' with this API key/region.")
+print("---------------------------------------------------------\n")
+
 
 # Function to generate embeddings using Google's API
 def get_embedding(text_chunk):
@@ -90,7 +103,7 @@ class RAGPipeline:
             context = "\n".join([chunk['text'] for chunk in retrieved_chunks])
             print(f"RAG: Context prepared for Gemini (length: {len(context)}).")
 
-            model = genai.GenerativeModel('gemini-1.0-pro')
+            model = genai.GenerativeModel('models/gemini-1.5-pro')
             prompt = f"""
             You are a helpful travel assistant. Based on the following context, answer the user's query.
             If the context does not contain enough information to answer the question, state that you cannot answer from the provided context.
