@@ -7,7 +7,7 @@ import sys
 
 # Ensure the rag_pipeline directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'rag_pipeline')))
-from rag import RAGPipeline # Adjust import if your RAGPipeline class is named differently
+from rag_app import RAGPipeline # Adjust import if your RAGPipeline class is named differently
 
 app = Flask(__name__)
 CORS(app) # Add this line right after app = Flask(__name__)
