@@ -90,7 +90,7 @@ class RAGPipeline:
             context = "\n".join([chunk['text'] for chunk in retrieved_chunks])
             print(f"RAG: Context prepared for Gemini (length: {len(context)}).")
 
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-1.0-pro')
             prompt = f"""
             You are a helpful travel assistant. Based on the following context, answer the user's query.
             If the context does not contain enough information to answer the question, state that you cannot answer from the provided context.
