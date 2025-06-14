@@ -1,126 +1,149 @@
 import os
 import json
-import spacy
+import numpy as np
+import faiss
+import re
+import google.generativeai as genai # For Google embeddings
 
-# Load spaCy English model
-nlp = spacy.load("en_core_web_sm")
+# Configure Google API key (make sure it's set as an environment variable)
+genai.configure(api_key=os.environ.get('GOOGLE_API_KEY'))
 
-# Define paths
-DATA_DIR = '../data' # Path to your raw data
-PROCESSED_DIR = './processed_chunks' # Where to save processed chunks
+# --- Configuration ---
+DATA_DIR = os.path.join(os.path.dirname(__file__), '../data')
+PROCESSED_CHUNKS_DIR = os.path.join(os.path.dirname(__file__), 'processed_chunks')
+TRAVEL_CHUNKS_PATH = os.path.join(PROCESSED_CHUNKS_DIR, 'travel_chunks.json')
+FAISS_INDEX_PATH = os.path.join(os.path.dirname(__file__), 'faiss_index.bin')
+CHUNKS_METADATA_PATH = os.path.join(os.path.dirname(__file__), 'chunks_metadata.json')
 
-# --- ADD THESE DEBUGGING LINES HERE ---
-# Get the directory where the current script is located (this will be 'rag_pipeline')
-script_dir = os.path.dirname(os.path.abspath(__file__))
+# --- Debugging Utility ---
+def debug_log(message):
+    print(f"DEBUG: {message}")
 
-# Resolve the DATA_DIR path relative to the script's directory
-# This is the full, absolute path that Python is trying to access for your data
-resolved_data_dir = os.path.abspath(os.path.join(script_dir, DATA_DIR))
-
-print(f"DEBUG: Script is located at: {script_dir}")
-print(f"DEBUG: Attempting to access data directory at: {resolved_data_dir}")
-print(f"DEBUG: Does the data directory exist according to Python? {os.path.exists(resolved_data_dir)}")
-# --- END OF DEBUGGING LINES ---
-
-# Ensure processed directory exists
-os.makedirs(PROCESSED_DIR, exist_ok=True)
-
+# --- Text Preprocessing and Chunking ---
 def clean_text(text):
-    """Basic text cleaning (you might need more advanced cleaning based on your data)."""
-    text = text.replace('\n', ' ').replace('\r', ' ')
-    text = ' '.join(text.split()) # Remove extra spaces
-    # Add more cleaning steps if necessary (e.g., HTML tag removal)
+    text = re.sub(r'\s+', ' ', text) # Replace multiple spaces with single
+    text = text.strip()
     return text
 
-def chunk_text(text, source_filename, chunk_size=300, overlap_size=50):
-    """
-    Splits text into chunks using spaCy for sentence segmentation,
-    then combines sentences into approximate chunk_size with overlap.
-    """
-    doc = nlp(text)
-    sentences = [sent.text for sent in doc.sents]
-    
+def chunk_text(text, max_chunk_size=500):
     chunks = []
     current_chunk = []
     current_length = 0
-    chunk_id_counter = 0
 
-    for i, sentence in enumerate(sentences):
-        sentence_length = len(sentence.split()) # Approximate token count
-        
-        if current_length + sentence_length <= chunk_size:
-            current_chunk.append(sentence)
-            current_length += sentence_length
+    sentences = re.split(r'(?<=[.!?])\s+', text) # Split by sentences
+
+    for sentence in sentences:
+        # If adding the next sentence exceeds max_chunk_size, start a new chunk
+        if current_length + len(sentence) + 1 > max_chunk_size and current_chunk:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [sentence]
+            current_length = len(sentence)
         else:
-            # Save current chunk
-            if current_chunk:
-                chunks.append({
-                    "text": " ".join(current_chunk).strip(),
-                    "source": source_filename,
-                    "chunk_id": f"{source_filename}_{chunk_id_counter}"
-                })
-                chunk_id_counter += 1
-            
-            # Start new chunk with overlap
-            current_chunk = []
-            if overlap_size > 0:
-                # Add sentences from the end of the previous chunk as overlap
-                overlap_sentences_start_idx = max(0, len(sentences) - (overlap_size // (chunk_size / len(sentences))) ) # Rough calculation
-                
-                # A more robust overlap would be:
-                # Find how many tokens from the end of the last chunk to carry over
-                # This simple loop adds last few sentences until overlap_size is met
-                overlap_tokens_count = 0
-                for j in reversed(range(len(current_chunk))):
-                    if overlap_tokens_count < overlap_size:
-                        current_chunk.insert(0, current_chunk[j]) # Add to start of new chunk
-                        overlap_tokens_count += len(current_chunk[j].split())
-                    else:
-                        break
-                
             current_chunk.append(sentence)
-            current_length = len(" ".join(current_chunk).split())
-            
-    # Add the last chunk
-    if current_chunk:
-        chunks.append({
-            "text": " ".join(current_chunk).strip(),
-            "source": source_filename,
-            "chunk_id": f"{source_filename}_{chunk_id_counter}"
-        })
+            current_length += len(sentence) + 1 # +1 for the space
 
+    if current_chunk: # Add any remaining chunk
+        chunks.append(" ".join(current_chunk))
     return chunks
 
-def process_all_data(data_dir, processed_dir):
-    all_processed_chunks = []
+def load_and_chunk_data(data_dir):
+    all_chunks = []
+    if not os.path.exists(data_dir):
+        print(f"Error: Data directory not found at {data_dir}")
+        return []
+    
+    debug_log(f"Attempting to access data directory at: {data_dir}")
+    debug_log(f"Does the data directory exist according to Python? {os.path.exists(data_dir)}")
 
-    # --- NEW DEBUGGING PRINT HERE ---
-    files_found = os.listdir(resolved_data_dir) # Use the absolute path here
-    print(f"DEBUG: Files found in resolved data directory: {files_found}")
-    # --- END NEW DEBUGGING PRINT ---
+    files_in_data_dir = os.listdir(data_dir)
+    debug_log(f"Files found in resolved data directory: {files_in_data_dir}")
 
-    for filename in files_found: # Iterate through the files found
-        filepath = os.path.join(resolved_data_dir, filename) # Join with absolute path
+    for filename in files_in_data_dir:
+        file_path = os.path.join(data_dir, filename)
+        
+        # Skip directories, .gitkeep, and non-text files
+        if os.path.isdir(file_path) or not (filename.endswith('.txt') or filename.endswith('.md')):
+            debug_log(f"Skipping {filename} (not a .txt or .md file or is a directory)")
+            continue
 
-        # Ensure it's a file and ends with .txt or .md
-        if os.path.isfile(filepath) and filename.endswith(('.txt', '.md')):
-            with open(filepath, 'r', encoding='utf-8') as f:
-                raw_text = f.read()
-
-            cleaned_text = clean_text(raw_text)
-            chunks = chunk_text(cleaned_text, filename)
-            all_processed_chunks.extend(chunks)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            cleaned_content = clean_text(content)
+            chunks = chunk_text(cleaned_content)
+            
+            for i, chunk in enumerate(chunks):
+                all_chunks.append({
+                    'id': f"{filename}_{i}",
+                    'text': chunk,
+                    'source': filename
+                })
             print(f"Processed {len(chunks)} chunks from {filename}")
-        else:
-            print(f"DEBUG: Skipping {filename} (not a .txt or .md file or is a directory)")
+        except Exception as e:
+            print(f"Error processing file {filename}: {e}")
+    return all_chunks
 
-    # Save all chunks to a single JSON file
-    output_filepath = os.path.join(processed_dir, 'travel_chunks.json')
-    with open(output_filepath, 'w', encoding='utf-8') as f:
-        json.dump(all_processed_chunks, f, indent=4)
-    print(f"Saved {len(all_processed_chunks)} total chunks to {output_filepath}")
+# --- Embedding Generation ---
+def get_embedding(text_chunk):
+    try:
+        # Use Google's embedding model
+        response = genai.embed_content(model="models/embedding-001", content=text_chunk)
+        return response["embedding"]
+    except Exception as e:
+        print(f"Error generating embedding for chunk: {e}")
+        return None
 
-if __name__ == "__main__":
+# --- Main Preprocessing Logic ---
+if __name__ == '__main__':
+    debug_log(f"Script is located at: {os.path.dirname(__file__)}")
+
+    # Ensure processed_chunks directory exists
+    os.makedirs(PROCESSED_CHUNKS_DIR, exist_ok=True)
+
     print("Starting data preprocessing and chunking...")
-    process_all_data(DATA_DIR, PROCESSED_DIR)
+    travel_chunks_data = load_and_chunk_data(DATA_DIR)
+    
+    if travel_chunks_data:
+        # Save raw chunks for potential review/reuse
+        with open(TRAVEL_CHUNKS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(travel_chunks_data, f, indent=4)
+        print(f"Saved {len(travel_chunks_data)} total chunks to {TRAVEL_CHUNKS_PATH}")
+
+        print("Generating embeddings and building FAISS index...")
+        chunk_texts = [chunk['text'] for chunk in travel_chunks_data]
+        
+        # Generate embeddings in batches if many chunks to avoid API limits/timeouts
+        embeddings = []
+        metadata = []
+        for i, chunk_text in enumerate(chunk_texts):
+            print(f"Generating embedding for chunk {i+1}/{len(chunk_texts)}...")
+            embedding = get_embedding(chunk_text)
+            if embedding is not None:
+                embeddings.append(embedding)
+                metadata.append(travel_chunks_data[i])
+            else:
+                print(f"Skipping chunk {travel_chunks_data[i]['id']} due to embedding error.")
+
+        if not embeddings:
+            print("No embeddings generated. FAISS index cannot be built.")
+        else:
+            embeddings_np = np.array(embeddings, dtype=np.float32)
+            embedding_dim = embeddings_np.shape[1]
+
+            # Build FAISS index
+            index = faiss.IndexFlatL2(embedding_dim)
+            index.add(embeddings_np)
+            
+            # Save FAISS index
+            faiss.write_index(index, FAISS_INDEX_PATH)
+            print(f"FAISS index built and saved to {FAISS_INDEX_PATH} with dimension {embedding_dim}.")
+
+            # Save chunks metadata (with IDs linked to index)
+            with open(CHUNKS_METADATA_PATH, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=4)
+            print(f"Chunks metadata saved to {CHUNKS_METADATA_PATH}.")
+
+    else:
+        print("No chunks processed. FAISS index not built.")
+
     print("Preprocessing complete.")
