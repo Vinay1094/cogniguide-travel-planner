@@ -18,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
         askButton.disabled = true; // Disable button while processing
 
         try {
-            const backendUrl = 'YOUR_RENDER_SERVICE_URL_HERE'', {
+            const backendUrl = 'https://cogniguide.onrender.com'; //, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
