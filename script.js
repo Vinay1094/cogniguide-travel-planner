@@ -17,8 +17,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingIndicator.style.display = 'block';
         askButton.disabled = true; // Disable button while processing
 
-        try {
-            const backendUrl = 'https://cogniguide.onrender.com'; //, {
+            try {
+            const backendUrl = 'https://cogniguide.onrender.com'; // 
+
+            const response = await fetch(backendUrl + '/ask', { // <-- Corrected fetch call
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -39,7 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             loadingIndicator.style.display = 'none'; // Hide loading
             askButton.disabled = false; // Re-enable button
-        }
+        }     
+
+
+        
     };
 
     // Event Listeners
